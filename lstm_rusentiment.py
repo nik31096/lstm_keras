@@ -3,7 +3,9 @@ from keras.preprocessing.sequence import pad_sequences
 from keras.models import Sequential
 from keras.layers import Dense, Flatten, LSTM
 from keras.layers.embeddings import Embedding
+from keras.utils import to_categorical
 from pandas import read_csv, concat
+from sklearn.metrics import classification_report
 import numpy as np
 
 # useful links on tutorials: 
@@ -11,35 +13,40 @@ import numpy as np
 # https://machinelearningmastery.com/prepare-text-data-deep-learning-keras/
 # https://keras.io/preprocessing/text/#tokenizer
 
-data_path = '/home/nik-96/Documents/git/rusentiment/Dataset/'
-
-df1 = read_csv(data_path + 'rusentiment_preselected_posts.csv')
-df2 = read_csv(data_path + 'rusentiment_random_posts.csv')
-df = concat([df1, df2])
 
 def data_preprocessing(df):
     labels = list(df['label'].values)
     num_labels = dict((v, k) for k, v in dict(enumerate(np.unique(labels))).items())
-    labels = [num_labels[label] for label in labels]
-    print(max(labels))
-    sentences = [text_to_word_sequence(text=phrase, 
-                                       filters='0123456789\n!"#$%&()*+,-./:;<=>?@[\]^_`{|}~\'') 
-                 for phrase in list(df["text"].values)]
+    labels = to_categorical([num_labels[label] for label in labels])
+    _filter = '0123456789\n!"#$%&()*+,-./:;<=>?@[\]^_`{|}~\''
+    sentences = [text_to_word_sequence(text=phrase, filters=_filter) for phrase in list(df["text"].values)]
     phrases = []
-
     for sentence in sentences:
         phrases.append(' '.join(sentence))
-
     vocabulary = []
     for sentence in sentences:
         for word in sentence:
             vocabulary.append(word)
     vocabulary = sorted(list(set(vocabulary)))
 
-    return phrases, vocabulary, labels
+    return phrases, vocabulary, labels  
 
+
+def encoding(vocabulary, phrases, max_length):
+    vocab_size = len(vocabulary)
+    encoded_docs = [one_hot(d, vocab_size) for d in phrases]
+    padded_docs = pad_sequences(encoded_docs, maxlen=max_length, padding='post')
+
+    return vocab_size, padded_docs
+
+
+data_path = '/home/nik-96/Documents/git/rusentiment/Dataset/'
 
 # train data
+df1 = read_csv(data_path + 'rusentiment_preselected_posts.csv')
+df2 = read_csv(data_path + 'rusentiment_random_posts.csv')
+df = concat([df1, df2])
+
 train_phrases, train_vocabulary, train_labels = data_preprocessing(df)
 
 # test data
@@ -53,32 +60,40 @@ test_phrases, test_vocabulary, test_labels = data_preprocessing(df_test)
 #print(t.word_index)
 #print(t.word_docs)
 
-def encoding(vocabulary, phrases)
-    vocab_size = len(vocabulary)
-    encoded_docs = [one_hot(d, vocab_size) for d in phrases]
-    max_length = max([len(phrase) for phrase in phrases])
-    padded_docs = pad_sequences(encoded_docs, maxlen=max_length, padding='post')
-
-    return vocab_size, padded_docs
+max_length = max([len(phrase) for phrase in train_phrases])
+train_vocab_size, train_padded_docs = encoding(train_vocabulary, train_phrases, max_length)
+test_vocab_size, test_padded_docs = encoding(test_vocabulary, test_phrases, max_length)
 
 
-train_vocab_size, train_padded_docs = encoding(train_vocabulary, train_phrases)
-test_vocab_size, test_padded_docs = encoding(test_vocabulary, test_phrases)
+def simple_model():
+    model = Sequential()
+    model.add(Embedding(train_vocab_size, 128, input_length=max_length))    
+    model.add(Flatten())
+    model.add(Dense(5, activation='sigmoid'))
 
-model = Sequential()
-model.add(Embedding(vocab_size, 128, input_length=max_length))    
-model.add(Flatten())                                            
-model.add(Dense(1, activation='sigmoid'))    
+    return model
+
+
+def lstm_model(hidden_size):
+    model = Sequential()
+    model.add(Embedding(train_vocab_size, 128, input_length=max_length))
+    model.add(LSTM(hidden_size))
+    model.add(Dense(5, activation='softmax'))
+
+    return model
+
+
+model = lstm_model(500)
 # compile the model                          
 print("[INFO] training network...")
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['acc'])    
 # summarize the model                                                           
 print(model.summary())    
-model.fit(train_padded_docs, train_labels, epochs=50, verbose=0)    
+model.fit(train_padded_docs, train_labels, epochs=3)    
 # evaluate the model                              
 #loss, accuracy = model.evaluate(padded_docs, labels, verbose=0) 
 #print('Accuracy: %f' % (accuracy*100))
 print("[INFO] evaluating network...")
-preds = model.predict()
-
+preds = model.predict(test_padded_docs)
+print(classification_report(test_labels.argmax(axis=1), preds.argmax(axis=1)))
 
