@@ -4,6 +4,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Flatten, LSTM
 from keras.layers.embeddings import Embedding
 from keras.utils import to_categorical
+from keras.regularizers import l1, l2
 from pandas import read_csv, concat
 from sklearn.metrics import classification_report
 import numpy as np
@@ -48,7 +49,7 @@ df2 = read_csv(data_path + 'rusentiment_random_posts.csv')
 df = concat([df1, df2])
 
 train_phrases, train_vocabulary, train_labels = data_preprocessing(df)
-
+print(train_labels[0])
 # test data
 df_test = read_csv(data_path + 'rusentiment_test.csv')
 test_phrases, test_vocabulary, test_labels = data_preprocessing(df_test)
@@ -76,24 +77,27 @@ def simple_model():
 
 def lstm_model(hidden_size):
     model = Sequential()
-    model.add(Embedding(train_vocab_size, 128, input_length=max_length))
-    model.add(LSTM(hidden_size))
-    model.add(Dense(5, activation='softmax'))
+    model.add(Embedding(train_vocab_size, 32, input_length=max_length))
+    model.add(LSTM(hidden_size, kernel_regularizer=l1(0.01), bias_regularizer=l2(0.01), activity_regularizer=l2(0.01)))
+    model.add(Dense(5, activation='softmax', kernel_regularizer=l1(0.01), bias_regularizer=l1(0.01)))
 
     return model
 
-
-model = lstm_model(500)
+import sys
+sys.exit()
+model = lstm_model(50)
 # compile the model                          
 print("[INFO] training network...")
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['acc'])    
 # summarize the model                                                           
 print(model.summary())    
-model.fit(train_padded_docs, train_labels, epochs=3)    
+model.fit(train_padded_docs, train_labels, epochs=10)    
 # evaluate the model                              
 #loss, accuracy = model.evaluate(padded_docs, labels, verbose=0) 
 #print('Accuracy: %f' % (accuracy*100))
 print("[INFO] evaluating network...")
 preds = model.predict(test_padded_docs)
-print(classification_report(test_labels.argmax(axis=1), preds.argmax(axis=1)))
+print(classification_report(test_labels, preds))
+
+model.save('./rusentiment_model')
 

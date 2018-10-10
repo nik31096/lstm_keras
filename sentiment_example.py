@@ -5,6 +5,8 @@ from keras.layers import Dense, Flatten
 from keras.layers.embeddings import Embedding
 import numpy as np
 # link on tutorial: https://machinelearningmastery.com/use-word-embedding-layers-deep-learning-keras/from keras.preprocessing.sequence import pad_sequences
+# link about regularization: https://chrisalbon.com/deep_learning/keras/neural_network_weight_regularization/
+
 docs = ['Well done!',
 		'Good work',
 		'Great effort',
