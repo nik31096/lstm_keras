@@ -40,21 +40,23 @@ stopwords_path = "../filimdb_evaluation/Starter_code/stopwords.txt"
 with open(stopwords_path, 'r') as f:
     stopwords = f.read().split('\n')
 
-stopwords = stopwords + ['br', 'movie', 'also']
+stopwords += ['br', 'movie', 'also', 'film']
 
-train_tokens = [tokenize(text) for text in train_texts]
-vocab = [word for text in train_tokens for word in text.split() if word not in stopwords]
+start = time.time()
+train_tokens = [set(tokenize(text).split()) for text in train_texts]
+end = time.time()
+train_dict = np.array([(i, text.split()) for i, text in enumerate(train_tokens)])
+vocab = [word for text in train_tokens for word in text if word not in stopwords]
 print("vocab len:", len(set(vocab)))
 counter = Counter(vocab)
 rare_words = [x for (x, y) in counter.items() if y == 1]
-start = time.time()
-vocab = set(vocab) - set(rare_words)
-end = time.time()
+vocab = set(vocab).difference(set(rare_words))
+#end = time.time()
 print("removing operation in seconds: ", end - start)
 #vocab = [word for word in vocab if word not in rare_words]
 print("number of rare words:", len(rare_words))
 print("vocab len after removing rare words:", len(set(vocab)))
 
-
+train_tokens = [text]
 
 
