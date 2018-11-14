@@ -5,7 +5,7 @@ import os
 import re
 from string import punctuation
 from collections import Counter
-from math import log10
+from math import log2
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -59,7 +59,6 @@ def prepare_text_data(data_type='train', test=False):
     vocab_dict = {word: i for i, word in enumerate(vocab)}
     print("vocab len after removing rare words:", len(set(vocab)))
     
-    #coocurrence_matrix = csr_matrix((len(X), len(vocab)), dtype=np.uint8)
     coocurrence_vectors = [] 
     for i, x in enumerate(X):
         counter = Counter(x)
@@ -72,22 +71,59 @@ def prepare_text_data(data_type='train', test=False):
     coocurrence_matrix = vstack(coocurrence_vectors)
     print(coocurrence_matrix.shape)
     if not test:
-        Y = train_labels
+        Y = [0 if item == 'neg' else 1 for item in train_labels]
     else:
         Y = None
     
-    return vocab, X, Y
+    return vocab, coocurrence_matrix, Y
 
 train_vocab, trainX, trainY = prepare_text_data(data_type='train')
 #dev_vocab, devX, devY = prepare_text_data(data_type='dev')
 #test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
 
-print("Program time;", time.time() - start)
+print("Data preparation takes {} seconds".format(round(time.time() - start, 2)))
 
 
 def sigmoid(x):
-    return 1/(1 - np.exp(-x))
+    return 1/(1 + np.exp(-x))
+
+
+def weights_init(len_vocab):
+    weights = np.zeros((1, len_vocab))
+    return weights
+
+
+EPOCHES = 100
+lr = 0.001
+alpha = 0.1
+N = trainX.shape[0]
+V = trainX.shape[1]
+
+
+def loss(weights, X, Y):
+    W_X = np.array([sigmoid(X[i].dot(weights.transpose())[0]) for i in range(N)]).reshape(-1)
+    print(log2(W_X[0]), Y[0])
+    W_2 = np.sum([weight*weight for weight in weights])
+    loss = -1/N*np.sum([y*log2(w_x) + (1-y)*log2(1-w_x) for w_x, y in zip(W_X, Y)]) + alpha*W_2
+
+    return loss, W_X
+
+
+def loss_gradient(weights, X, Y, W_X):
+    nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(w_x-y)*X[i, j] for w_x, y, i in zip(W_X, Y, range(N))]) 
+                        for weight, j in zip(weights, range(V))])
+    return nabla_L.reshape(-1)
+
+
+weights = weights_init(V)
+init_loss, initW_X = loss(weights, trainX, trainY)
+print(init_loss)
+gradient = loss_gradient(weights, trainX, trainY, initW_X)
+print(gradient.shape, gradient[0])
 
 
 
 
+
+
+print("Program time:", time.time() - start)
