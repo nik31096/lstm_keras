@@ -33,23 +33,29 @@ def tokenize(text):
 
 def prepare_text_data(data_type='train', test=False):
     print("[INFO] data {} loading".format(data_type))
+    if data_type == 'train,dev':
+        train = load_data('train.texts')
+
     train_texts = load_data('{}.texts'.format(data_type))
     if not test:
         train_labels = load_data('{}.labels'.format(data_type))
     
     # stop words
-    stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 
-             'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what',
-             'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has',
-             'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
-             'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to',
-             'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 
-             'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
-             'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'I', 'should', 'now', 'd', 'll', 'm', 'o', 're', 've',
-             'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn',
-             'wasn', 'weren', 'won', 'wouldn', 'br', 'movie', 'also', 'film']
+    stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
+                 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself',
+                 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
+                 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+                 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as',
+                 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+                 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off',
+                 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how',
+                 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+                 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'I', 'should',
+                 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn',
+                 'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn',
+                 'br', 'movie', 'also', 'film']
     
-    X = [set(tokenize(text)) for text in train_texts]
+    X = [tokenize(text) for text in train_texts]
     vocab_list = [word for text in X for word in text]
     counter = Counter(vocab_list)
     vocab = set(vocab_list).difference(set(stopwords))
@@ -71,17 +77,11 @@ def prepare_text_data(data_type='train', test=False):
     coocurrence_matrix = vstack(coocurrence_vectors)
     print(coocurrence_matrix.shape)
     if not test:
-        Y = [0 if item == 'neg' else 1 for item in train_labels]
+        Y = np.array([0 if item == 'neg' else 1 for item in train_labels])
     else:
         Y = None
     
     return vocab, coocurrence_matrix, Y
-
-train_vocab, trainX, trainY = prepare_text_data(data_type='train')
-#dev_vocab, devX, devY = prepare_text_data(data_type='dev')
-#test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
-
-print("Data preparation takes {} seconds".format(round(time.time() - start, 2)))
 
 
 def sigmoid(x):
@@ -90,19 +90,12 @@ def sigmoid(x):
 
 def weights_init(len_vocab):
     weights = np.zeros((1, len_vocab))
+
     return weights
 
 
-EPOCHES = 100
-lr = 0.001
-alpha = 0.1
-N = trainX.shape[0]
-V = trainX.shape[1]
-
-
-def loss(weights, X, Y):
+def loss_calculate(weights, X, Y):
     W_X = np.array([sigmoid(X[i].dot(weights.transpose())[0]) for i in range(N)]).reshape(-1)
-    print(log2(W_X[0]), Y[0])
     W_2 = np.sum([weight*weight for weight in weights])
     loss = -1/N*np.sum([y*log2(w_x) + (1-y)*log2(1-w_x) for w_x, y in zip(W_X, Y)]) + alpha*W_2
 
@@ -110,20 +103,57 @@ def loss(weights, X, Y):
 
 
 def loss_gradient(weights, X, Y, W_X):
-    nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(w_x-y)*X[i, j] for w_x, y, i in zip(W_X, Y, range(N))]) 
-                        for weight, j in zip(weights, range(V))])
+    #nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(w_x-y)*X[i, j] for w_x, y, i in zip(W_X, Y, range(N))])
+    #                    for weight, j in zip(weights, range(V))])
+    nabla_L = 2*alpha*weights + 1/N*X.transpose().dot(W_X-Y)
+
     return nabla_L.reshape(-1)
 
 
+def sgd(weights, X, Y, W_X):
+    M = 20
+    random_M_indices = [np.random.randint(X.shape[0]) for _ in range(M)]
+    #nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(W_X[i]-Y[i])*X[i, j] for i in random_M_indices])
+    #                    for weight, j in zip(weights, range(V))])
+    nabla_L = 1/N*X[random_M_indices].transpose().dot(W_X[random_M_indices]-Y[random_M_indices]) + 2*alpha*weights
+    
+    return nabla_L.reshape(-1)
+
+
+def fit(weights, trainX, trainY):
+    count = 0
+    while True:
+        #loss, W_X = loss_calculate(weights, trainX, trainY)
+        if count % 10000 == 0:
+            loss, W_X = loss_calculate(weights, trainX, trainY)
+            print("iteration {}, loss: {}".format(count, loss))
+        gradient = loss_gradient(weights, trainX, trainY, W_X)
+        # gradient = sgd(weights, trainX, trainY, W_X)
+        weights_new = weights - lr*gradient
+        weights = weights_new
+        count += 1
+
+    return weights_new
+
+
+# def predict(weights, testX):
+#
+
+
+train_vocab, trainX, trainY = prepare_text_data(data_type='train')
+# dev_vocab, devX, devY = prepare_text_data(data_type='dev')
+# test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
+
+print("Data preparation takes {} seconds".format(round(time.time() - start, 2)))
+
+lr = 5e-2
+alpha = 1e-7
+N = trainX.shape[0]
+V = trainX.shape[1]
+
 weights = weights_init(V)
-init_loss, initW_X = loss(weights, trainX, trainY)
-print(init_loss)
-gradient = loss_gradient(weights, trainX, trainY, initW_X)
-print(gradient.shape, gradient[0])
 
-
-
-
-
+trained_weights = fit(weights, trainX, trainY)
+print(np.linalg.norm(trained_weights))
 
 print("Program time:", time.time() - start)
