@@ -1,11 +1,10 @@
 import numpy as np
-from scipy.sparse import csr_matrix, save_npz, vstack
+from scipy.sparse import csr_matrix, save_npz, vstack, hstack
 import time
 import os
-import re
+from sys import exit
 from string import punctuation
 from collections import Counter
-from math import log2
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -31,14 +30,19 @@ def tokenize(text):
     return text.split()
 
 
-def prepare_text_data(data_type='train', test=False):
+def prepare_text_data(data_type='train'):
     print("[INFO] data {} loading".format(data_type))
-    if data_type == 'train,dev':
+    if data_type == 'train_dev':
         train = load_data('train.texts')
-
-    train_texts = load_data('{}.texts'.format(data_type))
-    if not test:
-        train_labels = load_data('{}.labels'.format(data_type))
+        train_len = len(train)
+        dev = load_data('dev.texts')
+        dev_len = len(dev)
+        texts = train + dev
+        print("Len of texts is:", len(texts))
+        train_labels = load_data('train.labels')
+        dev_labels = load_data('dev.labels')
+    else:
+        texts = load_data('{}.texts'.format(data_type))
     
     # stop words
     stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
@@ -55,12 +59,12 @@ def prepare_text_data(data_type='train', test=False):
                  'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn',
                  'br', 'movie', 'also', 'film']
     
-    X = [tokenize(text) for text in train_texts]
+    X = [tokenize(text) for text in texts]
     vocab_list = [word for text in X for word in text]
     counter = Counter(vocab_list)
     vocab = set(vocab_list).difference(set(stopwords))
     print("vocab len:", len(set(vocab)))
-    rare_words = [x for (x, y) in counter.items() if y == 1]
+    rare_words = [x for (x, y) in counter.items() if y == 1 or y == 2]
     vocab = vocab.difference(set(rare_words))
     vocab_dict = {word: i for i, word in enumerate(vocab)}
     print("vocab len after removing rare words:", len(set(vocab)))
@@ -75,11 +79,12 @@ def prepare_text_data(data_type='train', test=False):
         coocurrence_vectors.append(csr_matrix((data, (row, col)), shape=(1, len(vocab))))
     
     coocurrence_matrix = vstack(coocurrence_vectors)
-    print(coocurrence_matrix.shape)
-    if not test:
-        Y = np.array([0 if item == 'neg' else 1 for item in train_labels])
-    else:
-        Y = None
+    trainY = np.array([0 if item == 'neg' else 1 for item in train_labels])
+    devY = np.array([0 if item == 'neg' else 1 for item in dev_labels])
+
+    if data_type == 'train_dev':
+        return vocab, hstack([csr_matrix(np.ones((train_len, 1))), coocurrence_matrix[:train_len]], format='csr'), \
+               hstack([csr_matrix(np.ones((dev_len, 1))), coocurrence_matrix[train_len:]], format='csr'), trainY, devY
     
     return vocab, coocurrence_matrix, Y
 
@@ -95,65 +100,71 @@ def weights_init(len_vocab):
 
 
 def loss_calculate(weights, X, Y):
-    W_X = np.array([sigmoid(X[i].dot(weights.transpose())[0]) for i in range(N)]).reshape(-1)
-    W_2 = np.sum([weight*weight for weight in weights])
-    loss = -1/N*np.sum([y*log2(w_x) + (1-y)*log2(1-w_x) for w_x, y in zip(W_X, Y)]) + alpha*W_2
+    W_X = sigmoid(X.dot(weights.transpose())).reshape(-1)
+    loss = -1/N*np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha*np.sum(weights**2)
 
     return loss, W_X
 
 
-def loss_gradient(weights, X, Y, W_X):
-    #nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(w_x-y)*X[i, j] for w_x, y, i in zip(W_X, Y, range(N))])
-    #                    for weight, j in zip(weights, range(V))])
-    nabla_L = 2*alpha*weights + 1/N*X.transpose().dot(W_X-Y)
+def loss_gradient(weights, X, Y):
+    nabla_L = 2*alpha*weights + 1/N*X.transpose().dot(sigmoid(X.dot(weights.transpose()).reshape(-1) - Y))
 
     return nabla_L.reshape(-1)
 
 
-def sgd(weights, X, Y, W_X):
+def sgd(weights, X, Y):
+    W_X = sigmoid(X.dot(weights.transpose())).reshape(-1)
     M = 20
     random_M_indices = [np.random.randint(X.shape[0]) for _ in range(M)]
-    #nabla_L = np.array([2*alpha*weight + 1/N*np.sum([(W_X[i]-Y[i])*X[i, j] for i in random_M_indices])
-    #                    for weight, j in zip(weights, range(V))])
     nabla_L = 1/N*X[random_M_indices].transpose().dot(W_X[random_M_indices]-Y[random_M_indices]) + 2*alpha*weights
     
     return nabla_L.reshape(-1)
 
 
-def fit(weights, trainX, trainY):
+def fit(weights, trainX, trainY, ep2show, end):
     count = 0
-    while True:
+    while count < int(end):
         #loss, W_X = loss_calculate(weights, trainX, trainY)
-        if count % 10000 == 0:
+        if count % ep2show == 0:
             loss, W_X = loss_calculate(weights, trainX, trainY)
             print("iteration {}, loss: {}".format(count, loss))
-        gradient = loss_gradient(weights, trainX, trainY, W_X)
-        # gradient = sgd(weights, trainX, trainY, W_X)
+        # gradient = loss_gradient(weights, trainX, trainY, W_X)
+        gradient = sgd(weights, trainX, trainY)
         weights_new = weights - lr*gradient
+        #if count % 10000 == 0:
+        #    print("weights norm: ", np.linalg.norm(weights_new - weights))
+        #if np.linalg.norm(weights_new - weights) < eps:
         weights = weights_new
         count += 1
 
-    return weights_new
+    return weights_new, count
 
 
-# def predict(weights, testX):
-#
+def get_accuracy_on(testX, testY, weights):
+    preds = [1 if item > 0.5 else 0 for item in sigmoid(testX.dot(weights.transpose())).reshape(-1)]
+    count = 0
+    for y_pred, y_true in zip(preds, testY):
+        if y_pred == y_true:
+            count += 1
+
+    return count / len(testY)
 
 
-train_vocab, trainX, trainY = prepare_text_data(data_type='train')
-# dev_vocab, devX, devY = prepare_text_data(data_type='dev')
+train_dev_vocab, trainX, devX, trainY, devY = prepare_text_data(data_type='train_dev')
+print(type(trainX), type(devX))
+#dev_vocab, devX, devY = prepare_text_data(data_type='dev')
 # test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
+print("Data preparation takes {} seconds".format(round(time.time() - start, 4)))
 
-print("Data preparation takes {} seconds".format(round(time.time() - start, 2)))
-
-lr = 5e-2
-alpha = 1e-7
+lr = 5e-1
+alpha = 1e-5
 N = trainX.shape[0]
 V = trainX.shape[1]
 
 weights = weights_init(V)
 
-trained_weights = fit(weights, trainX, trainY)
-print(np.linalg.norm(trained_weights))
+trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=10000, end=1e5)
+accuracy = get_accuracy_on(devX, devY, trained_weights)
+print("Accuracy after {} iterations is {}".format(train_iterations, accuracy))
 
 print("Program time:", time.time() - start)
