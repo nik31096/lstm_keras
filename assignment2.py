@@ -64,7 +64,7 @@ def prepare_text_data(data_type='train'):
     counter = Counter(vocab_list)
     vocab = set(vocab_list).difference(set(stopwords))
     print("vocab len:", len(set(vocab)))
-    rare_words = [x for (x, y) in counter.items() if y == 1 or y == 2]
+    rare_words = [x for (x, y) in counter.items() if y == 1]
     vocab = vocab.difference(set(rare_words))
     vocab_dict = {word: i for i, word in enumerate(vocab)}
     print("vocab len after removing rare words:", len(set(vocab)))
@@ -100,36 +100,37 @@ def weights_init(len_vocab):
 
 
 def loss_calculate(weights, X, Y):
-    W_X = sigmoid(X.dot(weights.transpose())).reshape(-1)
-    loss = -1/N*np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha*np.sum(weights**2)
+    W_X = sigmoid(X.dot(weights.T)).reshape(-1)
+    loss = -1/N*np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha*np.sum(weights[1:]**2)
 
     return loss, W_X
 
 
 def loss_gradient(weights, X, Y):
-    nabla_L = 2*alpha*weights + 1/N*X.transpose().dot(sigmoid(X.dot(weights.transpose()).reshape(-1) - Y))
+    nabla_L = 2*alpha*weights + 1/N*X.T.dot(sigmoid(X.dot(weights.T).reshape(-1) - Y))
 
     return nabla_L.reshape(-1)
 
 
 def sgd(weights, X, Y):
-    W_X = sigmoid(X.dot(weights.transpose())).reshape(-1)
-    M = 20
+    W_X = sigmoid(X.dot(weights.T)).reshape(-1)
+    M = 10
     random_M_indices = [np.random.randint(X.shape[0]) for _ in range(M)]
-    nabla_L = 1/N*X[random_M_indices].transpose().dot(W_X[random_M_indices]-Y[random_M_indices]) + 2*alpha*weights
+    nabla_L = 1/N*X[random_M_indices].T.dot(W_X[random_M_indices]-Y[random_M_indices]) + 2*alpha*weights
     
     return nabla_L.reshape(-1)
 
 
 def fit(weights, trainX, trainY, ep2show, end):
     count = 0
-    while count < int(end):
+    while count < int(end) + 1:
         #loss, W_X = loss_calculate(weights, trainX, trainY)
         if count % ep2show == 0:
             loss, W_X = loss_calculate(weights, trainX, trainY)
             print("iteration {}, loss: {}".format(count, loss))
         # gradient = loss_gradient(weights, trainX, trainY, W_X)
         gradient = sgd(weights, trainX, trainY)
+        lr = 5e-1 if count < 100000 else 1e-1
         weights_new = weights - lr*gradient
         #if count % 10000 == 0:
         #    print("weights norm: ", np.linalg.norm(weights_new - weights))
@@ -141,7 +142,7 @@ def fit(weights, trainX, trainY, ep2show, end):
 
 
 def get_accuracy_on(testX, testY, weights):
-    preds = [1 if item > 0.5 else 0 for item in sigmoid(testX.dot(weights.transpose())).reshape(-1)]
+    preds = [1 if item >= 0.5 else 0 for item in sigmoid(testX.dot(weights.transpose())).reshape(-1)]
     count = 0
     for y_pred, y_true in zip(preds, testY):
         if y_pred == y_true:
@@ -151,19 +152,17 @@ def get_accuracy_on(testX, testY, weights):
 
 
 train_dev_vocab, trainX, devX, trainY, devY = prepare_text_data(data_type='train_dev')
-print(type(trainX), type(devX))
 #dev_vocab, devX, devY = prepare_text_data(data_type='dev')
 # test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
 print("Data preparation takes {} seconds".format(round(time.time() - start, 4)))
 
-lr = 5e-1
-alpha = 1e-5
+alpha = 1e-6
 N = trainX.shape[0]
 V = trainX.shape[1]
-
+print(N, V)
 weights = weights_init(V)
 
-trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=10000, end=1e5)
+trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=10000, end=5e5)
 accuracy = get_accuracy_on(devX, devY, trained_weights)
 print("Accuracy after {} iterations is {}".format(train_iterations, accuracy))
 
