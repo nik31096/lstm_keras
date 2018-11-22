@@ -6,8 +6,8 @@ from sys import exit
 from string import punctuation
 from collections import Counter
 import warnings
-warnings.filterwarnings("ignore")
 
+warnings.filterwarnings("ignore")
 
 start = time.time()
 data_path = '../filimdb_evaluation/FILIMDB'
@@ -43,7 +43,7 @@ def prepare_text_data(data_type='train'):
         dev_labels = load_data('dev.labels')
     else:
         texts = load_data('{}.texts'.format(data_type))
-    
+
     # stop words
     stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
                  'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself',
@@ -58,7 +58,7 @@ def prepare_text_data(data_type='train'):
                  'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn',
                  'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn',
                  'br', 'movie', 'also', 'film']
-    
+
     X = [tokenize(text) for text in texts]
     vocab_list = [word for text in X for word in text]
     counter = Counter(vocab_list)
@@ -68,16 +68,16 @@ def prepare_text_data(data_type='train'):
     vocab = vocab.difference(set(rare_words))
     vocab_dict = {word: i for i, word in enumerate(vocab)}
     print("vocab len after removing rare words:", len(set(vocab)))
-    
-    coocurrence_vectors = [] 
+
+    coocurrence_vectors = []
     for i, x in enumerate(X):
         counter = Counter(x)
         col = np.array([vocab_dict[word] for word in counter.keys() if word in vocab])
         row = np.array([0 for _ in range(len(col))])
         data = np.array([freq for word, freq in counter.items() if word in vocab])
-        
+
         coocurrence_vectors.append(csr_matrix((data, (row, col)), shape=(1, len(vocab))))
-    
+
     coocurrence_matrix = vstack(coocurrence_vectors)
     trainY = np.array([0 if item == 'neg' else 1 for item in train_labels])
     devY = np.array([0 if item == 'neg' else 1 for item in dev_labels])
@@ -85,12 +85,12 @@ def prepare_text_data(data_type='train'):
     if data_type == 'train_dev':
         return vocab, hstack([csr_matrix(np.ones((train_len, 1))), coocurrence_matrix[:train_len]], format='csr'), \
                hstack([csr_matrix(np.ones((dev_len, 1))), coocurrence_matrix[train_len:]], format='csr'), trainY, devY
-    
+
     return vocab, coocurrence_matrix, Y
 
 
 def sigmoid(x):
-    return 1/(1 + np.exp(-x))
+    return 1 / (1 + np.exp(-x))
 
 
 def weights_init(len_vocab):
@@ -101,48 +101,50 @@ def weights_init(len_vocab):
 
 def loss_calculate(weights, X, Y):
     W_X = sigmoid(X.dot(weights.T)).reshape(-1)
-    loss = -1/N*np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha*np.sum(weights[1:]**2)
+    loss = -1 / N * np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha * np.sum(weights[1:] ** 2)
 
     return loss, W_X
 
 
 def loss_gradient(weights, X, Y):
-    nabla_L = 2*alpha*weights + 1/N*X.T.dot(sigmoid(X.dot(weights.T).reshape(-1) - Y))
+    nabla_L = 2 * alpha * weights + 1 / N * X.T.dot(sigmoid(X.dot(weights.T).reshape(-1)) - Y)
 
     return nabla_L.reshape(-1)
 
 
 def sgd(weights, X, Y):
-    W_X = sigmoid(X.dot(weights.T)).reshape(-1)
-    M = 10
-    random_M_indices = [np.random.randint(X.shape[0]) for _ in range(M)]
-    nabla_L = 1/N*X[random_M_indices].T.dot(W_X[random_M_indices]-Y[random_M_indices]) + 2*alpha*weights
-    
-    return nabla_L.reshape(-1)
+    random_M_indices = np.random.randint(0, N, 20)
+    W_X = sigmoid(X[random_M_indices].dot(weights.T)).reshape(-1)
+    nabla_L = 1 / N * X[random_M_indices].T.dot(W_X - Y[random_M_indices]) + 2 * alpha * weights
+
+    return nabla_L
 
 
-def fit(weights, trainX, trainY, ep2show, end):
+def fit(weights, trainX, trainY, ep2show, eps=1e-7):
     count = 0
-    while count < int(end) + 1:
-        #loss, W_X = loss_calculate(weights, trainX, trainY)
+    while True:
+        # iteration_start = time.time()
+        gradient = sgd(weights, trainX, trainY)
+        # print("shapes: weights {} and gradient {}".format(weights.shape, gradient.shape))
+        if count < 20000:
+            lr = 0.5
+        else:
+            lr = 5e-2
+        weights -= lr * gradient
+        if np.linalg.norm(gradient) < eps:
+            break
         if count % ep2show == 0:
             loss, W_X = loss_calculate(weights, trainX, trainY)
-            print("iteration {}, loss: {}".format(count, loss))
-        # gradient = loss_gradient(weights, trainX, trainY, W_X)
-        gradient = sgd(weights, trainX, trainY)
-        lr = 5e-1 if count < 100000 else 1e-1
-        weights_new = weights - lr*gradient
-        #if count % 10000 == 0:
-        #    print("weights norm: ", np.linalg.norm(weights_new - weights))
-        #if np.linalg.norm(weights_new - weights) < eps:
-        weights = weights_new
+            print("iteration {}, loss: {}, gradient: {}".format(count, loss, np.linalg.norm(gradient)))
         count += 1
+        # print("Iteration {} ends with time {}".format(count, time.time() - iteration_start))
 
-    return weights_new, count
+    return weights, count
 
 
 def get_accuracy_on(testX, testY, weights):
-    preds = [1 if item >= 0.5 else 0 for item in sigmoid(testX.dot(weights.transpose())).reshape(-1)]
+    W_X = sigmoid(testX.dot(weights.T)).reshape(-1)
+    preds = [1 if item >= 0.5 else 0 for item in W_X]
     count = 0
     for y_pred, y_true in zip(preds, testY):
         if y_pred == y_true:
@@ -152,18 +154,21 @@ def get_accuracy_on(testX, testY, weights):
 
 
 train_dev_vocab, trainX, devX, trainY, devY = prepare_text_data(data_type='train_dev')
-#dev_vocab, devX, devY = prepare_text_data(data_type='dev')
+# dev_vocab, devX, devY = prepare_text_data(data_type='dev')
 # test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
 print("Data preparation takes {} seconds".format(round(time.time() - start, 4)))
 
-alpha = 1e-6
+alpha = 1e-7
 N = trainX.shape[0]
 V = trainX.shape[1]
 print(N, V)
 weights = weights_init(V)
 
-trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=10000, end=5e5)
-accuracy = get_accuracy_on(devX, devY, trained_weights)
-print("Accuracy after {} iterations is {}".format(train_iterations, accuracy))
+trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=100000)
+accuracy_train = get_accuracy_on(trainX, trainY, trained_weights)
+accuracy_dev = get_accuracy_on(devX, devY, trained_weights)
+print("After {} iterations train accuracy is {}, dev accuracy is {}".format(train_iterations,
+                                                                            accuracy_train,
+                                                                            accuracy_dev))
 
 print("Program time:", time.time() - start)
