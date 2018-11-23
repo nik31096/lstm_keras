@@ -24,69 +24,64 @@ def load_data(filename):
 
 
 def tokenize(text):
-    table = str.maketrans("'", ' ', punctuation)
+    table = str.maketrans("'", ' ', punctuation + '1234567890')
     text = text.lower().translate(table)
 
     return text.split()
 
 
-def prepare_text_data(data_type='train'):
+def prepare_text_data(data_type='train', train_params=None):
+    # train_params={'vocab': vocab, "vocab_dict": vocab_dict}
     print("[INFO] data {} loading".format(data_type))
-    if data_type == 'train_dev':
-        train = load_data('train.texts')
-        train_len = len(train)
-        dev = load_data('dev.texts')
-        dev_len = len(dev)
-        texts = train + dev
-        print("Len of texts is:", len(texts))
-        train_labels = load_data('train.labels')
-        dev_labels = load_data('dev.labels')
-    else:
-        texts = load_data('{}.texts'.format(data_type))
-
+    texts = load_data('{}.texts'.format(data_type))
+    labels = load_data('{}.labels'.format(data_type))
     # stop words
     stopwords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
                  'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself',
                  'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
                  'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
                  'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as',
-                 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+                 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'between', 'into', 'through', 'although'
                  'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off',
                  'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how',
                  'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
                  'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'I', 'should',
                  'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn',
                  'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn',
-                 'br', 'movie', 'also', 'film']
+                 'br', 'movie', 'also', 'film', 'whose', 'others', 'outer', 'thus', 'could', "though"]
 
     X = [tokenize(text) for text in texts]
     vocab_list = [word for text in X for word in text]
     counter = Counter(vocab_list)
     vocab = set(vocab_list).difference(set(stopwords))
-    print("vocab len:", len(set(vocab)))
-    rare_words = [x for (x, y) in counter.items() if y == 1]
+    print("vocab len:", len(vocab))
+    rare_words = [x for (x, y) in counter.items() if y < 2]
     vocab = vocab.difference(set(rare_words))
-    vocab_dict = {word: i for i, word in enumerate(vocab)}
-    print("vocab len after removing rare words:", len(set(vocab)))
+    print(list(vocab)[-20:])
 
+    print("vocab len after removing rare words:", len(vocab))
+    if train_params:
+        train_vocab = train_params["vocab"]
+        train_vocab_dict = train_params["vocab_dict"]
+        print("testing data preparation")
+        dev_train_intersection = vocab.intersection(train_vocab)
+        print("train dev intersection len", len(dev_train_intersection))
+        weights_indices = [train_vocab_dict[word] for word in dev_train_intersection]
+        vocab = dev_train_intersection
+
+    vocab_dict = {word: i for i, word in enumerate(vocab)}
     coocurrence_vectors = []
     for i, x in enumerate(X):
         counter = Counter(x)
         col = np.array([vocab_dict[word] for word in counter.keys() if word in vocab])
         row = np.array([0 for _ in range(len(col))])
         data = np.array([freq for word, freq in counter.items() if word in vocab])
-
         coocurrence_vectors.append(csr_matrix((data, (row, col)), shape=(1, len(vocab))))
 
-    coocurrence_matrix = vstack(coocurrence_vectors)
-    trainY = np.array([0 if item == 'neg' else 1 for item in train_labels])
-    devY = np.array([0 if item == 'neg' else 1 for item in dev_labels])
+    coocurrence_matrix = hstack([csr_matrix(np.ones((len(texts), 1))), vstack(coocurrence_vectors)], format='csr')
+    Y = np.array([0 if item == 'neg' else 1 for item in labels])
 
-    if data_type == 'train_dev':
-        return vocab, hstack([csr_matrix(np.ones((train_len, 1))), coocurrence_matrix[:train_len]], format='csr'), \
-               hstack([csr_matrix(np.ones((dev_len, 1))), coocurrence_matrix[train_len:]], format='csr'), trainY, devY
-
-    return vocab, coocurrence_matrix, Y
+    return vocab, (weights_indices if train_params else vocab_dict), coocurrence_matrix, Y
 
 
 def sigmoid(x):
@@ -142,8 +137,9 @@ def fit(weights, trainX, trainY, ep2show, eps=1e-7):
     return weights, count
 
 
-def get_accuracy_on(testX, testY, weights):
-    W_X = sigmoid(testX.dot(weights.T)).reshape(-1)
+def predict(testX, testY, params=None):
+    # params={'weights': weights, 'vocab': vocab, 'trainX': trainX}
+    W_X = sigmoid(testX.dot(weights.T[weights_indices])).reshape(-1)
     preds = [1 if item >= 0.5 else 0 for item in W_X]
     count = 0
     for y_pred, y_true in zip(preds, testY):
@@ -153,11 +149,14 @@ def get_accuracy_on(testX, testY, weights):
     return count / len(testY)
 
 
-train_dev_vocab, trainX, devX, trainY, devY = prepare_text_data(data_type='train_dev')
-# dev_vocab, devX, devY = prepare_text_data(data_type='dev')
+train_vocab, train_vocab_dict, trainX, trainY = prepare_text_data(data_type='train', train_params=None)
+dev_vocab, weights_indices, devX, devY = prepare_text_data(data_type='dev',
+                                                           train_params={"vocab": train_vocab,
+                                                                         "vocab_dict": train_vocab_dict})
+print(len(dev_vocab), devX.shape, len(weights_indices))
 # test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
 print("Data preparation takes {} seconds".format(round(time.time() - start, 4)))
-
+exit()
 alpha = 1e-7
 N = trainX.shape[0]
 V = trainX.shape[1]
@@ -165,8 +164,9 @@ print(N, V)
 weights = weights_init(V)
 
 trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=100000)
-accuracy_train = get_accuracy_on(trainX, trainY, trained_weights)
-accuracy_dev = get_accuracy_on(devX, devY, trained_weights)
+
+accuracy_train = predict(trainX, trainY, trained_weights)
+accuracy_dev = predict(devX, devY, trained_weights)
 print("After {} iterations train accuracy is {}, dev accuracy is {}".format(train_iterations,
                                                                             accuracy_train,
                                                                             accuracy_dev))
