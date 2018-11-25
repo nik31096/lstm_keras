@@ -57,7 +57,7 @@ def prepare_text_data(data_type='train', train_params=None):
     print("vocab len:", len(vocab))
     rare_words = [x for (x, y) in counter.items() if y < 2]
     vocab = vocab.difference(set(rare_words))
-    print(list(vocab)[-20:])
+    print(tuple(vocab)[-20:])
 
     print("vocab len after removing rare words:", len(vocab))
     if train_params:
@@ -67,11 +67,12 @@ def prepare_text_data(data_type='train', train_params=None):
         dev_train_intersection = vocab.intersection(train_vocab)
         print("train dev intersection len", len(dev_train_intersection))
         weights_indices = [train_vocab_dict[word] for word in dev_train_intersection]
-        vocab = dev_train_intersection
+        vocab = tuple(dev_train_intersection)
+        #vocab_dict = {word: train_vocab_dict[word] for word in dev_train_intersection}
 
     vocab_dict = {word: i for i, word in enumerate(vocab)}
     coocurrence_vectors = []
-    for i, x in enumerate(X):
+    for x in X:
         counter = Counter(x)
         col = np.array([vocab_dict[word] for word in counter.keys() if word in vocab])
         row = np.array([0 for _ in range(len(col))])
@@ -89,48 +90,47 @@ def sigmoid(x):
 
 
 def weights_init(len_vocab):
-    weights = np.zeros((1, len_vocab))
+    weights = np.zeros((len_vocab))
 
     return weights
 
 
-def loss_calculate(weights, X, Y):
-    W_X = sigmoid(X.dot(weights.T)).reshape(-1)
+def loss_calculate(weights, X, Y, alpha):
+    W_X = sigmoid(X.dot(weights.T))
     loss = -1 / N * np.sum(Y.dot(np.log2(W_X)) + (1 - Y).dot(np.log2(1 - W_X))) + alpha * np.sum(weights[1:] ** 2)
 
     return loss, W_X
 
 
-def loss_gradient(weights, X, Y):
-    nabla_L = 2 * alpha * weights + 1 / N * X.T.dot(sigmoid(X.dot(weights.T).reshape(-1)) - Y)
-
-    return nabla_L.reshape(-1)
-
-
-def sgd(weights, X, Y):
-    random_M_indices = np.random.randint(0, N, 20)
-    W_X = sigmoid(X[random_M_indices].dot(weights.T)).reshape(-1)
-    nabla_L = 1 / N * X[random_M_indices].T.dot(W_X - Y[random_M_indices]) + 2 * alpha * weights
+def sgd(weights, X, Y, alpha, batch_size):
+    random_M_indices = np.random.randint(0, N, batch_size)
+    M_of_X = X[random_M_indices]
+    W_X = sigmoid(M_of_X.dot(weights.T))
+    nabla_L = 1 / N * M_of_X.T.dot(W_X - Y[random_M_indices]) + 2 * alpha * weights
 
     return nabla_L
 
 
-def fit(weights, trainX, trainY, ep2show, eps=1e-7):
+def fit(weights, trainX, trainY, alpha, ep2show, eps=1e-7):
     count = 0
-    while True:
+    while count < 1000000:
         # iteration_start = time.time()
-        gradient = sgd(weights, trainX, trainY)
+        gradient = sgd(weights, trainX, trainY, alpha, batch_size=32)
         # print("shapes: weights {} and gradient {}".format(weights.shape, gradient.shape))
         if count < 20000:
-            lr = 0.5
+            lr = 5e-1
+        elif count >= 20000 and count < 1000000:
+            lr = 1e-1
         else:
             lr = 5e-2
         weights -= lr * gradient
         if np.linalg.norm(gradient) < eps:
             break
         if count % ep2show == 0:
-            loss, W_X = loss_calculate(weights, trainX, trainY)
+            iteration_start = time.time()
+            loss, W_X = loss_calculate(weights, trainX, trainY, alpha)
             print("iteration {}, loss: {}, gradient: {}".format(count, loss, np.linalg.norm(gradient)))
+            print("{} iterations ends with time {}".format(count, time.time() - iteration_start))
         count += 1
         # print("Iteration {} ends with time {}".format(count, time.time() - iteration_start))
 
@@ -138,8 +138,13 @@ def fit(weights, trainX, trainY, ep2show, eps=1e-7):
 
 
 def predict(testX, testY, params=None):
-    # params={'weights': weights, 'vocab': vocab, 'trainX': trainX}
-    W_X = sigmoid(testX.dot(weights.T[weights_indices])).reshape(-1)
+    # params={'weights': weights, 'indices': weigths_indices}
+    weights = params['weights']
+    if len(params) > 1:
+        weights_indices = params['indices']
+        W_X = sigmoid(testX.dot(weights.T[[0] + weights_indices])).reshape(-1)
+    else:
+        W_X = sigmoid(testX.dot(weights.T)).reshape(-1)
     preds = [1 if item >= 0.5 else 0 for item in W_X]
     count = 0
     for y_pred, y_true in zip(preds, testY):
@@ -156,19 +161,20 @@ dev_vocab, weights_indices, devX, devY = prepare_text_data(data_type='dev',
 print(len(dev_vocab), devX.shape, len(weights_indices))
 # test_vocab, testX, _ = prepare_text_data(data_type='test', test=True)
 print("Data preparation takes {} seconds".format(round(time.time() - start, 4)))
-exit()
-alpha = 1e-7
+alpha = 5e-06
 N = trainX.shape[0]
 V = trainX.shape[1]
 print(N, V)
 weights = weights_init(V)
+print("[INFO] alpha={}".format(alpha))
+one_alpha_time_start = time.time()
+trained_weights, train_iterations = fit(weights, trainX, trainY, alpha, ep2show=100000)
 
-trained_weights, train_iterations = fit(weights, trainX, trainY, ep2show=100000)
-
-accuracy_train = predict(trainX, trainY, trained_weights)
-accuracy_dev = predict(devX, devY, trained_weights)
+accuracy_train = predict(trainX, trainY, params={'weights': trained_weights})
+accuracy_dev = predict(devX, devY, params={'weights': trained_weights, 'indices': weights_indices})
 print("After {} iterations train accuracy is {}, dev accuracy is {}".format(train_iterations,
                                                                             accuracy_train,
                                                                             accuracy_dev))
-
+print("[INFO] for alpha={} evaluation time is {}".format(alpha, time.time() - one_alpha_time_start))
 print("Program time:", time.time() - start)
+
