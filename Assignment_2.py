@@ -55,7 +55,7 @@ def prepare_text_data(data_type='train', train_params=None):
     counter = Counter(vocab_list)
     vocab = set(vocab_list).difference(set(stopwords))
     print("vocab len:", len(vocab))
-    rare_words = [x for (x, y) in counter.items() if y < 2]
+    rare_words = [x for (x, y) in counter.items() if y < 1]
     vocab = vocab.difference(set(rare_words))
     print(tuple(vocab)[-20:])
 
@@ -66,8 +66,9 @@ def prepare_text_data(data_type='train', train_params=None):
         print("testing data preparation")
         dev_train_intersection = vocab.intersection(train_vocab)
         print("train dev intersection len", len(dev_train_intersection))
-        weights_indices = [train_vocab_dict[word] for word in dev_train_intersection]
-        vocab = tuple(dev_train_intersection)
+        weights_indices = np.array([train_vocab_dict[word] for word in dev_train_intersection]) + 1
+        print("len of indices list for weights: {}".format(len(weights_indices)))
+        vocab = dev_train_intersection
         #vocab_dict = {word: train_vocab_dict[word] for word in dev_train_intersection}
 
     vocab_dict = {word: i for i, word in enumerate(vocab)}
@@ -77,11 +78,12 @@ def prepare_text_data(data_type='train', train_params=None):
         col = np.array([vocab_dict[word] for word in counter.keys() if word in vocab])
         row = np.array([0 for _ in range(len(col))])
         data = np.array([freq for word, freq in counter.items() if word in vocab])
+       
         coocurrence_vectors.append(csr_matrix((data, (row, col)), shape=(1, len(vocab))))
 
     coocurrence_matrix = hstack([csr_matrix(np.ones((len(texts), 1))), vstack(coocurrence_vectors)], format='csr')
     Y = np.array([0 if item == 'neg' else 1 for item in labels])
-
+    print("shape of coocurrence_matrix", coocurrence_matrix.shape)
     return vocab, (weights_indices if train_params else vocab_dict), coocurrence_matrix, Y
 
 
@@ -111,18 +113,18 @@ def sgd(weights, X, Y, alpha, batch_size):
     return nabla_L
 
 
-def fit(weights, trainX, trainY, alpha, ep2show, eps=1e-7):
+def fit(weights, trainX, trainY, alpha, ep2show, eps=1e-6):
     count = 0
-    while count < 1000000:
+    while count < 2000001:
         # iteration_start = time.time()
-        gradient = sgd(weights, trainX, trainY, alpha, batch_size=32)
+        gradient = sgd(weights, trainX, trainY, alpha, batch_size=16)
         # print("shapes: weights {} and gradient {}".format(weights.shape, gradient.shape))
-        if count < 20000:
+        if count < 25000:
             lr = 5e-1
         elif count >= 20000 and count < 1000000:
-            lr = 1e-1
+            lr = 25e-2
         else:
-            lr = 5e-2
+            lr = 8e-3
         weights -= lr * gradient
         if np.linalg.norm(gradient) < eps:
             break
@@ -142,7 +144,7 @@ def predict(testX, testY, params=None):
     weights = params['weights']
     if len(params) > 1:
         weights_indices = params['indices']
-        W_X = sigmoid(testX.dot(weights.T[[0] + weights_indices])).reshape(-1)
+        W_X = sigmoid(testX.dot(weights.T[[0] + list(weights_indices)])).reshape(-1)
     else:
         W_X = sigmoid(testX.dot(weights.T)).reshape(-1)
     preds = [1 if item >= 0.5 else 0 for item in W_X]
@@ -166,6 +168,7 @@ N = trainX.shape[0]
 V = trainX.shape[1]
 print(N, V)
 weights = weights_init(V)
+print(weights.shape)
 print("[INFO] alpha={}".format(alpha))
 one_alpha_time_start = time.time()
 trained_weights, train_iterations = fit(weights, trainX, trainY, alpha, ep2show=100000)
